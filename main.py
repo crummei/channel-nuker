@@ -1,1 +1,292 @@
+import os
+import discord
+from discord.ext import commands
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
 
+# Setup
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix=">", intents=intents)
+
+# Main bot code
+@bot.event
+async def on_ready():
+    logging.info(f'Bot: {bot.user} is ready\n-------------\n')
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def nuke(ctx):
+    def checkChannel(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+# Pick channel to nuke
+    await ctx.send("Please mention the channel you wish to nuke (e.g. #general) or type channel ID:")
+
+    try:
+        nukeMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+        nukeChannel = None
+
+        if nukeMsg.channel_mentions:
+            nukeChannel = nukeMsg.channel_mentions[0]
+        else:
+            nukeChannel = bot.get_channel(int(nukeMsg.content.strip()))
+
+        if nukeChannel is None:
+            await ctx.send("Invalid channel. Command cancelled.")
+            return
+
+    # Pick nuke type
+        await ctx.send("Would you like to nuke messages:\n1. From user\n2. From criteria:")
+
+        optionMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+        
+        if optionMsg.content.lower() in ["1", "1.", "user", "from user"]:
+            option = "user"
+        if optionMsg.content.lower() in ["2", "2.", "criteria", "from criteria"]:
+            option = "criteria"
+        else:
+            await ctx.send("Invalid choice. Command cancelled.")
+            return
+
+    # Select user to nuke
+        if option == "user":
+            await ctx.send("Mention the user whose messages you would like to nuke:")
+
+            nukeUser = await bot.wait_for("message", check=checkChannel, timeout=60)
+            
+            if nukeUser.mentions:
+                user = nukeUser.mentions[0]
+            else:
+                await ctx.send("Invalid choice. Command cancelled.")
+                return
+
+    # Select criteria
+        if option == "criteria":
+            await ctx.send("""Enter the criteria for the nuke to follow: ("All" for no criteria.)""")
+
+            nukeCrit = await bot.wait_for("message", check=checkChannel, timeout=60)
+            
+            if nukeCrit.content.lower().strip() == "all":
+                criteria = ""
+            elif nukeCrit.content.strip():
+                criteria = nukeCrit.content.strip()
+
+                await ctx.send(f"""Should the message:\n1. Start with "{criteria}"?\n2. Contain "{criteria}" anywhere?\n3. End with "{criteria}"?\n4. Match {criteria} exactly?""")
+                criteriaTypeMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+                if criteriaTypeMsg.content.strip().lower() in ["1", "1.", "start", "start with", "startwith"]:
+                    criteriaType = "start"
+                elif criteriaTypeMsg.content.strip().lower() in ["2", "2.", "contain", "contain anywhere", "anywhere"]:
+                    criteriaType = "contain"
+                elif criteriaTypeMsg.content.strip().lower() in ["3", "3.", "end", "end with", "endwith"]:
+                    criteriaType = "end"
+                elif criteriaTypeMsg.content.strip().lower() in ["4", "4.", "exact", "exact match", "exactmatch"]:
+                    criteriaType = "exact"
+                else:
+                    await ctx.send("Invalid choice. Command cancelled.")
+                    return
+
+            else:
+                await ctx.send("Invalid choice. Command cancelled.")
+                return
+
+
+    # Pick amount of messages
+        await ctx.send("How many messages would you like to check?")
+
+        amountToCheckMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+        
+        if amountToCheckMsg.content.strip().isdigit():
+            amountToCheck = int(amountToCheckMsg.content.strip())
+            if amountToCheck < 0:
+                await ctx.send("Number cannot be negative. Command cancelled.")
+                return
+        else:
+            await ctx.send("Invalid choice. Command cancelled.")
+            return
+
+    # Pick amount to delete
+        await ctx.send("Would you like a limit to deleted messages?: (Enter 0 for no limit)")
+
+        deleteLimitMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+        
+        if deleteLimitMsg.content.strip().isdigit():
+            deleteLimit = int(deleteLimitMsg.content.strip())
+            if deleteLimit < 0:
+                await ctx.send("Number cannot be negative. Command cancelled.")
+                return
+        else:
+            await ctx.send("Invalid choice. Command cancelled.")
+            return
+        
+        if deleteLimit < 0:
+            await ctx.send("Nuke is ready. Do you wish to launch?: (Yes/No)")
+            confirmLaunchMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+            if confirmLaunchMsg.content.lower() in ["yes", "y"]:
+                confirm = True
+            elif confirmLaunchMsg.content.lower() in ["no", "n"]:
+                await ctx.send("Confirmation denied. Command cancelled.")
+                return
+            else:
+                await ctx.send("Invalid choice. Command cancelled.")
+                return
+
+        elif deleteLimit == 0:
+            await ctx.send("Nuke is ready. Do you wish to launch?: (Yes/No)\n**WARNING:** No delete limit selected, this will delete __**ALL**__ matching messages in the channel.")
+            confirmLaunchMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
+            if confirmLaunchMsg.content.lower() in ["yes", "y"]:
+                confirm = True
+            elif confirmLaunchMsg.content.lower() in ["no", "n"]:
+                await ctx.send("Confirmation denied. Command cancelled.")
+                return
+            else:
+                await ctx.send("Invalid choice. Command cancelled.")
+                return
+    
+    # Nuke started
+        async def nukeMessages(ctx, option, deleteLimit, nukeChannel, amountToCheck, user=None, criteria=None, criteriaType=None):
+            deleted = 0
+            async for message in nukeChannel.history(limit=amountToCheck):
+                if option == "criteria":
+                    if deleteLimit == 0:
+                        if message.content == criteria:
+                            match criteriaType:
+                                case "start":
+                                    if message.content.startswith(criteria):
+                                        shouldDelete = True
+                                case "contain":
+                                    if criteria in message.content:
+                                        shouldDelete = True
+                                case "end":
+                                    if message.content.endswith(criteria):
+                                        shouldDelete = True
+                                case "exact":
+                                    if message.content == criteria:
+                                        shouldDelete = True
+                                case _:
+                                    shouldDelete = False
+                            if shouldDelete == True:
+                                try:
+                                    await message.delete()
+                                    deleted += 1
+                                except discord.Forbidden:
+                                    await ctx.send("I don't have permission to delete messages.")
+                                    return
+                                except discord.HTTPException as e:
+                                    print(f"Failed to delete message: {e}")
+                    else:
+                        while deleteLimit < deleted:
+                            if message.content == criteria:
+                                match criteriaType:
+                                    case "start":
+                                        if message.content.startswith(criteria):
+                                            shouldDelete = True
+                                    case "contain":
+                                        if criteria in message.content:
+                                            shouldDelete = True
+                                    case "end":
+                                        if message.content.endswith(criteria):
+                                            shouldDelete = True
+                                    case "exact":
+                                        if message.content == criteria:
+                                            shouldDelete = True
+                                    case _:
+                                        shouldDelete = False
+                                if shouldDelete == True:
+                                    try:
+                                        await message.delete()
+                                        deleted += 1
+                                    except discord.Forbidden:
+                                        await ctx.send("I don't have permission to delete messages.")
+                                        return
+                                    except discord.HTTPException as e:
+                                        print(f"Failed to delete message: {e}")
+            
+                    await ctx.send(f"Deleted {deleted} message(s) in {nukeChannel.mention} that matched {criteria}.")
+
+                elif option == "user":
+                    if deleteLimit == 0:
+                        if message.author == user:
+                            match criteriaType:
+                                case "start":
+                                    if message.content.startswith(criteria):
+                                        shouldDelete = True
+                                case "contain":
+                                    if criteria in message.content:
+                                        shouldDelete = True
+                                case "end":
+                                    if message.content.endswith(criteria):
+                                        shouldDelete = True
+                                case "exact":
+                                    if message.content == criteria:
+                                        shouldDelete = True
+                                case _:
+                                    shouldDelete = False
+                            if shouldDelete == True:
+                                try:
+                                    await message.delete()
+                                    deleted += 1
+                                except discord.Forbidden:
+                                    await ctx.send("I don't have permission to delete messages.")
+                                    return
+                                except discord.HTTPException as e:
+                                    print(f"Failed to delete message: {e}")
+                    else:
+                        while deleteLimit < deleted:
+                            if message.author == user:
+                                match criteriaType:
+                                    case "start":
+                                        if message.content.startswith(criteria):
+                                            shouldDelete = True
+                                    case "contain":
+                                        if criteria in message.content:
+                                            shouldDelete = True
+                                    case "end":
+                                        if message.content.endswith(criteria):
+                                            shouldDelete = True
+                                    case "exact":
+                                        if message.content == criteria:
+                                            shouldDelete = True
+                                    case _:
+                                        shouldDelete = False
+                                if shouldDelete == True:
+                                    try:
+                                        await message.delete()
+                                        deleted += 1
+                                    except discord.Forbidden:
+                                        await ctx.send("I don't have permission to delete messages.")
+                                        return
+                                    except discord.HTTPException as e:
+                                        print(f"Failed to delete message: {e}")
+            
+                    await ctx.send(
+                        f"Deleted {deleted} message(s) in {nukeChannel.mention} from {user.mention}.",
+                        allowed_mentions=discord.AllowedMentions.none(users=False)
+                    )
+
+        if confirm == True:
+            await nukeMessages(
+                ctx,
+                option=option,
+                deleteLimit=deleteLimit,
+                nukeChannel=nukeChannel,
+                amountToCheck=amountToCheck,
+                user=user if option == "user" else None,
+                criteria=criteria if option == "criteria" else None, 
+                criteriaType=criteriaType if option == "criteria" else None
+            )
+
+    except Exception as e:
+        await ctx.send("Timed out or error occurred, command cancelled.")
+        logging.warning(e)
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    
+    await bot.process_commands(message)
+
+bot.run(os.environ.get('TOKEN'))
