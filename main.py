@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord.ext import commands
 import logging
@@ -43,9 +44,9 @@ async def nuke(ctx):
 
         optionMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
         
-        if optionMsg.content.lower() in ["1", "1.", "user", "from user"]:
+        if str(optionMsg.content.lower()) in ["1", "1.", "user", "from user"]:
             option = "user"
-        if optionMsg.content.lower() in ["2", "2.", "criteria", "from criteria"]:
+        elif str(optionMsg.content.lower()) in ["2", "2.", "criteria", "from criteria"]:
             option = "criteria"
         else:
             await ctx.send("Invalid choice. Command cancelled.")
@@ -76,13 +77,13 @@ async def nuke(ctx):
 
                 await ctx.send(f"""Should the message:\n1. Start with "{criteria}"?\n2. Contain "{criteria}" anywhere?\n3. End with "{criteria}"?\n4. Match {criteria} exactly?""")
                 criteriaTypeMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
-                if criteriaTypeMsg.content.strip().lower() in ["1", "1.", "start", "start with", "startwith"]:
+                if str(criteriaTypeMsg.content.strip().lower()) in ["1", "1.", "start", "start with", "startwith"]:
                     criteriaType = "start"
-                elif criteriaTypeMsg.content.strip().lower() in ["2", "2.", "contain", "contain anywhere", "anywhere"]:
+                elif str(criteriaTypeMsg.content.strip().lower()) in ["2", "2.", "contain", "contain anywhere", "anywhere"]:
                     criteriaType = "contain"
-                elif criteriaTypeMsg.content.strip().lower() in ["3", "3.", "end", "end with", "endwith"]:
+                elif str(criteriaTypeMsg.content.strip().lower()) in ["3", "3.", "end", "end with", "endwith"]:
                     criteriaType = "end"
-                elif criteriaTypeMsg.content.strip().lower() in ["4", "4.", "exact", "exact match", "exactmatch"]:
+                elif str(criteriaTypeMsg.content.strip().lower()) in ["4", "4.", "exact", "exact match", "exactmatch"]:
                     criteriaType = "exact"
                 else:
                     await ctx.send("Invalid choice. Command cancelled.")
@@ -94,7 +95,7 @@ async def nuke(ctx):
 
 
     # Pick amount of messages
-        await ctx.send("How many messages would you like to check?")
+        await ctx.send("How many messages would you like to check? (0 for no limit)")
 
         amountToCheckMsg = await bot.wait_for("message", check=checkChannel, timeout=60)
         
@@ -103,6 +104,8 @@ async def nuke(ctx):
             if amountToCheck < 0:
                 await ctx.send("Number cannot be negative. Command cancelled.")
                 return
+            elif amountToCheck == 0:
+                amountToCheck = None
         else:
             await ctx.send("Invalid choice. Command cancelled.")
             return
@@ -170,12 +173,13 @@ async def nuke(ctx):
                             if shouldDelete == True:
                                 try:
                                     await message.delete()
+                                    await asyncio.sleep(0.2)
                                     deleted += 1
                                 except discord.Forbidden:
                                     await ctx.send("I don't have permission to delete messages.")
                                     return
                                 except discord.HTTPException as e:
-                                    print(f"Failed to delete message: {e}")
+                                    logging.info(f"Failed to delete message: {e}")
                     else:
                         while deleteLimit < deleted:
                             if message.content == criteria:
@@ -197,14 +201,14 @@ async def nuke(ctx):
                                 if shouldDelete == True:
                                     try:
                                         await message.delete()
+                                        await asyncio.sleep(0.2)
                                         deleted += 1
                                     except discord.Forbidden:
                                         await ctx.send("I don't have permission to delete messages.")
                                         return
                                     except discord.HTTPException as e:
-                                        print(f"Failed to delete message: {e}")
+                                        logging.info(f"Failed to delete message: {e}")
             
-                    await ctx.send(f"Deleted {deleted} message(s) in {nukeChannel.mention} that matched {criteria}.")
 
                 elif option == "user":
                     if deleteLimit == 0:
@@ -227,12 +231,13 @@ async def nuke(ctx):
                             if shouldDelete == True:
                                 try:
                                     await message.delete()
+                                    await asyncio.sleep(0.2)
                                     deleted += 1
                                 except discord.Forbidden:
                                     await ctx.send("I don't have permission to delete messages.")
                                     return
                                 except discord.HTTPException as e:
-                                    print(f"Failed to delete message: {e}")
+                                    logging.info(f"Failed to delete message: {e}")
                     else:
                         while deleteLimit < deleted:
                             if message.author == user:
@@ -254,18 +259,22 @@ async def nuke(ctx):
                                 if shouldDelete == True:
                                     try:
                                         await message.delete()
+                                        await asyncio.sleep(0.2)    
                                         deleted += 1
                                     except discord.Forbidden:
                                         await ctx.send("I don't have permission to delete messages.")
                                         return
                                     except discord.HTTPException as e:
-                                        print(f"Failed to delete message: {e}")
-            
-                    await ctx.send(
-                        f"Deleted {deleted} message(s) in {nukeChannel.mention} from {user.mention}.",
-                        allowed_mentions=discord.AllowedMentions.none(users=False)
-                    )
+                                        logging.info(f"Failed to delete message: {e}")
 
+            if option == "user":
+                await ctx.send(
+                    f"Deleted {deleted} message(s) in {nukeChannel.mention} from {user.mention}.",
+                    allowed_mentions=discord.AllowedMentions.none(users=False)
+                    )
+            elif option == "criteria":
+                await ctx.send(f"Deleted {deleted} message(s) in {nukeChannel.mention} that matched {criteria}.")
+            
         if confirm == True:
             await nukeMessages(
                 ctx,
